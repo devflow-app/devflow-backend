@@ -1,0 +1,121 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+              - "${FRONTEND_URL:http://localhost:4200}"
+            allowedMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+            allowedHeaders: ["*"]
+            allowCredentials: true
+            maxAge: 3600
+      routes:
+        # OpenAPI docs routes (rewriting path to /v3/api-docs downstream)
+        - id: auth-openapi
+          uri: http://${AUTH_SERVICE_HOST:localhost}:8081
+          predicates:
+            - Path=/api/v1/auth/v3/api-docs
+          filters:
+            - RewritePath=/api/v1/auth/v3/api-docs, /v3/api-docs
+
+        - id: project-openapi
+          uri: http://${PROJECT_SERVICE_HOST:localhost}:8082
+          predicates:
+            - Path=/api/v1/projects/v3/api-docs
+          filters:
+            - RewritePath=/api/v1/projects/v3/api-docs, /v3/api-docs
+
+        - id: notification-openapi
+          uri: http://${NOTIFICATION_SERVICE_HOST:localhost}:8083
+          predicates:
+            - Path=/api/v1/notifications/v3/api-docs
+          filters:
+            - RewritePath=/api/v1/notifications/v3/api-docs, /v3/api-docs
+
+        - id: ai-openapi
+          uri: http://${AI_SERVICE_HOST:localhost}:8084
+          predicates:
+            - Path=/api/v1/ai/v3/api-docs
+          filters:
+            - RewritePath=/api/v1/ai/v3/api-docs, /v3/api-docs
+
+        # Auth Service
+        - id: auth-service
+          uri: http://${AUTH_SERVICE_HOST:localhost}:8081
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 40
+                redis-rate-limiter.requestedTokens: 1
+
+        # Project Service (protected)
+        - id: project-service
+          uri: http://${PROJECT_SERVICE_HOST:localhost}:8082
+          predicates:
+            - Path=/api/v1/organizations/**, /api/v1/projects/**, /api/v1/tasks/**, /api/v1/boards/**, /api/v1/sprints/**
+          filters:
+            - AuthenticationFilter
+
+        # Notification Service (WebSocket + REST)
+        - id: notification-service
+          uri: http://${NOTIFICATION_SERVICE_HOST:localhost}:8083
+          predicates:
+            - Path=/api/v1/notifications/**, /ws/**
+          filters:
+            - AuthenticationFilter
+
+        # AI Service (protected)
+        - id: ai-service
+          uri: http://${AI_SERVICE_HOST:localhost}:8084
+          predicates:
+            - Path=/api/v1/ai/**
+          filters:
+            - AuthenticationFilter
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:redis123}
+
+devflow:
+  jwt:
+    secret: ${JWT_SECRET:your-very-long-and-secure-secret-key-minimum-256-bits-change-this-in-production}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    urls:
+      - name: Auth Service
+        url: /api/v1/auth/v3/api-docs
+      - name: Project Service
+        url: /api/v1/projects/v3/api-docs
+      - name: Notification Service
+        url: /api/v1/notifications/v3/api-docs
+      - name: AI Service
+        url: /api/v1/ai/v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    com.devflow: DEBUG
